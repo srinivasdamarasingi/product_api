@@ -25,6 +25,9 @@ from app.routers.weather import (
 from app.routers.retry import (
     router as retry_router
 )
+from app.routers.circuit import (
+    router as circuit_router
+)
 
 logger.info("Application Started Successfully")
 
@@ -71,6 +74,9 @@ app.include_router(
 )
 app.include_router(
     retry_router
+)
+app.include_router(
+    circuit_router
 )
 
 @app.get("/")

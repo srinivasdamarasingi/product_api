@@ -1,10 +1,12 @@
-import httpx
 import time
+import httpx
 
 
-def fetch_data(url: str):
-
-    retries = 3
+def fetch_data(
+    url: str,
+    retries: int = 3,
+    base_delay: float = 1.0
+):
 
     for attempt in range(retries):
 
@@ -24,4 +26,6 @@ def fetch_data(url: str):
             if attempt == retries - 1:
                 raise
 
-            time.sleep(1)
+            delay = base_delay * (2 ** attempt)
+
+            time.sleep(delay)
