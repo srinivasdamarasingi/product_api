@@ -22,6 +22,10 @@ from app.routers.weather import (
     router as weather_router
 )
 
+from app.routers.retry import (
+    router as retry_router
+)
+
 logger.info("Application Started Successfully")
 
 app = FastAPI()
@@ -64,6 +68,9 @@ app.include_router(auth_router)
 app.include_router(email.router)
 app.include_router(
     weather_router
+)
+app.include_router(
+    retry_router
 )
 
 @app.get("/")
