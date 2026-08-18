@@ -18,6 +18,9 @@ from app.exceptions.custom_exceptions import ProductNotFoundException
 from app.exceptions.handlers import global_exception_handler
 from fastapi.exceptions import RequestValidationError
 from app.exceptions.handlers import validation_exception_handler
+from app.routers.weather import (
+    router as weather_router
+)
 
 logger.info("Application Started Successfully")
 
@@ -59,6 +62,9 @@ app.include_router(product_router)
 app.include_router(category_router)
 app.include_router(auth_router)
 app.include_router(email.router)
+app.include_router(
+    weather_router
+)
 
 @app.get("/")
 def home():
