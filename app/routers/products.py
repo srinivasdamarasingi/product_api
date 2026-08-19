@@ -23,6 +23,8 @@ import shutil
 import uuid
 
 from fastapi import UploadFile, File
+from pathlib import Path
+from fastapi import status
 
 router = APIRouter(
     prefix="/products",
@@ -146,19 +148,104 @@ def upload_product_image(
     current_user: User = Depends(get_current_admin)
 ):
 
-    product = db.query(Product).filter(Product.id == product_id).first()
+    product = (
+        db.query(Product)
+        .filter(Product.id == product_id)
+        .first()
+    )
 
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found"
+        )
 
-    filename = f"{uuid.uuid4()}_{file.filename}"
+    # ---------------------------------------------------------
+    # Allowed image types
+    # ---------------------------------------------------------
 
-    file_path = os.path.join("uploads/products", filename)
+    allowed_content_types = {
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+    }
+
+    if file.content_type not in allowed_content_types:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid image type"
+        )
+
+    # ---------------------------------------------------------
+    # Safe filename
+    # ---------------------------------------------------------
+
+    original_filename = Path(
+        file.filename or "upload"
+    ).name
+
+    extension = Path(
+        original_filename
+    ).suffix.lower()
+
+    allowed_extensions = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp"
+    }
+
+    if extension not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file extension"
+        )
+
+    # ---------------------------------------------------------
+    # Maximum file size = 5 MB
+    # ---------------------------------------------------------
+
+    file.file.seek(0, 2)
+
+    file_size = file.file.tell()
+
+    file.file.seek(0)
+
+    max_size = 5 * 1024 * 1024
+
+    if file_size > max_size:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="File too large"
+        )
+
+    # ---------------------------------------------------------
+    # Generate safe server-side filename
+    # ---------------------------------------------------------
+
+    filename = (
+        f"{uuid.uuid4()}_{original_filename}"
+    )
+
+    os.makedirs(
+        "uploads/products",
+        exist_ok=True
+    )
+
+    file_path = os.path.join(
+        "uploads/products",
+        filename
+    )
 
     with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        shutil.copyfileobj(
+            file.file,
+            buffer
+        )
 
-    relative_path = f"uploads/products/{filename}"
+    relative_path = (
+        f"uploads/products/{filename}"
+    )
 
     product.image_path = relative_path
 

@@ -1,5 +1,6 @@
 from app.models.products import Product
 import json
+from unittest.mock import patch, mock_open
 
 def test_get_products(client):
     response = client.get("/products/")
@@ -401,3 +402,219 @@ def test_paginate_products(
     data = response.json()
 
     assert len(data) == 5
+
+def test_upload_product_image(
+    admin_client,
+    test_product
+):
+
+    with patch(
+        "app.routers.products.uuid.uuid4",
+        return_value="test-uuid"
+    ), patch(
+        "builtins.open",
+        mock_open()
+    ), patch(
+        "app.routers.products.shutil.copyfileobj"
+    ) as mock_copy:
+
+        response = admin_client.post(
+            f"/products/{test_product.id}/image",
+            files={
+                "file": (
+                    "product.png",
+                    b"fake-image-content",
+                    "image/png"
+                )
+            }
+        )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["id"] == test_product.id
+
+    assert data["image_path"] == (
+        "uploads/products/"
+        "test-uuid_product.png"
+    )
+
+    mock_copy.assert_called_once()
+
+def test_upload_image_product_not_found(
+    admin_client
+):
+
+    response = admin_client.post(
+        "/products/999999/image",
+        files={
+            "file": (
+                "product.png",
+                b"fake-image-content",
+                "image/png"
+            )
+        }
+    )
+
+    assert response.status_code == 404
+
+    assert response.json()["detail"] == (
+        "Product not found"
+    )
+
+def test_upload_image_without_authentication(
+    client,
+    test_product
+):
+
+    response = client.post(
+        f"/products/{test_product.id}/image",
+        files={
+            "file": (
+                "product.png",
+                b"fake-image-content",
+                "image/png"
+            )
+        }
+    )
+
+    assert response.status_code == 401
+
+def test_upload_image_as_normal_user(
+    user_client,
+    test_product
+):
+
+    response = user_client.post(
+        f"/products/{test_product.id}/image",
+        files={
+            "file": (
+                "product.png",
+                b"fake-image-content",
+                "image/png"
+            )
+        }
+    )
+
+    assert response.status_code == 403
+
+def test_upload_image_missing_file(
+    admin_client,
+    test_product
+):
+
+    response = admin_client.post(
+        f"/products/{test_product.id}/image"
+    )
+
+    assert response.status_code == 422
+
+def test_upload_invalid_image_type(
+    admin_client,
+    test_product
+):
+
+    response = admin_client.post(
+        f"/products/{test_product.id}/image",
+        files={
+            "file": (
+                "malware.exe",
+                b"fake executable",
+                "application/octet-stream"
+            )
+        }
+    )
+
+    assert response.status_code == 400
+
+    assert response.json()["detail"] == (
+        "Invalid image type"
+    )
+
+def test_upload_invalid_extension(
+    admin_client,
+    test_product
+):
+
+    response = admin_client.post(
+        f"/products/{test_product.id}/image",
+        files={
+            "file": (
+                "script.php",
+                b"fake image",
+                "image/png"
+            )
+        }
+    )
+
+    assert response.status_code == 400
+
+    assert response.json()["detail"] == (
+        "Invalid file extension"
+    )
+
+def test_upload_image_too_large(
+    admin_client,
+    test_product
+):
+
+    large_file = b"x" * (
+        5 * 1024 * 1024 + 1
+    )
+
+    response = admin_client.post(
+        f"/products/{test_product.id}/image",
+        files={
+            "file": (
+                "large.png",
+                large_file,
+                "image/png"
+            )
+        }
+    )
+
+    assert response.status_code == 413
+
+    assert response.json()["detail"] == (
+        "File too large"
+    )
+
+def test_upload_sanitizes_filename(
+    admin_client,
+    test_product
+):
+
+    with patch(
+        "app.routers.products.uuid.uuid4",
+        return_value="safe-uuid"
+    ), patch(
+        "builtins.open",
+        mock_open()
+    ), patch(
+        "app.routers.products.shutil.copyfileobj"
+    ):
+
+        response = admin_client.post(
+            f"/products/{test_product.id}/image",
+            files={
+                "file": (
+                    "../../evil.png",
+                    b"fake-image",
+                    "image/png"
+                )
+            }
+        )
+
+    assert response.status_code == 200
+
+    image_path = response.json()[
+        "image_path"
+    ]
+
+    assert ".." not in image_path
+
+    assert image_path == (
+        "uploads/products/"
+        "safe-uuid_evil.png"
+    )
