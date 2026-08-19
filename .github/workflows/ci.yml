@@ -76,3 +76,11 @@ jobs:
         if: always()
         run: |
           docker compose down -v
+    env:
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      MAIL_FROM: ${{ secrets.MAIL_FROM }}
+
+      SMTP_HOST: ${{ vars.SMTP_HOST }}
+      SMTP_PORT: ${{ vars.SMTP_PORT }}
+      MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME }}
