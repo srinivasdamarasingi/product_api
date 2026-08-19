@@ -43,7 +43,12 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:SqlPgAdmin@postgres:5432/product_db
       REDIS_HOST: redis
 
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      MAIL_FROM: ${MAIL_FROM}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME}
 
   celery:
     build: .
