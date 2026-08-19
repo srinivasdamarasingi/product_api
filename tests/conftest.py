@@ -9,7 +9,8 @@ from app.database import Base, get_db
 from app.models.category import Category
 from app.models.user import User
 from app.security import hash_password, create_access_token
-
+from app.models.products import Product
+from unittest.mock import MagicMock
 
 # ============================================================
 # TEST DATABASE
@@ -245,3 +246,45 @@ def error_client(db_session):
         yield test_client
 
     app.dependency_overrides.clear()
+
+@pytest.fixture
+def test_product(db_session, test_category):
+
+    product = Product(
+        name="Test Product",
+        price=25000,
+        stock=10,
+        category_id=test_category.id
+    )
+
+    db_session.add(product)
+    db_session.commit()
+    db_session.refresh(product)
+
+    return product
+
+@pytest.fixture
+def mock_redis(monkeypatch):
+    from unittest.mock import MagicMock
+
+    mock = MagicMock()
+
+    monkeypatch.setattr(
+        "app.services.redis_service.redis_client",
+        mock
+    )
+
+    return mock
+
+
+@pytest.fixture
+def mock_product_redis(monkeypatch):
+
+    mock_redis = MagicMock()
+
+    monkeypatch.setattr(
+        "app.crud.product.redis_client",
+        mock_redis
+    )
+
+    return mock_redis

@@ -28,6 +28,9 @@ from app.routers.retry import (
 from app.routers.circuit import (
     router as circuit_router
 )
+from app.routers.rate_limit import (
+    router as rate_limit_router
+)
 
 logger.info("Application Started Successfully")
 
@@ -78,7 +81,9 @@ app.include_router(
 app.include_router(
     circuit_router
 )
-
+app.include_router(
+    rate_limit_router
+)
 @app.get("/")
 def home():
     return {
