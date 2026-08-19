@@ -14,73 +14,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    steps:
-
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Show Docker versions
-        run: |
-          docker --version
-          docker compose version
-
-      - name: Build Docker containers
-        run: |
-          docker compose build
-
-      - name: Create upload directories
-        run: |
-          mkdir -p uploads/products
-
-      - name: Start Docker services
-        run: |
-          docker compose up -d
-          docker compose logs fastapi
-
-      - name: Show running containers
-        run: |
-          docker compose ps
-
-      - name: Wait for PostgreSQL
-        run: |
-          until docker compose exec -T postgres pg_isready -U postgres; do
-            echo "Waiting for PostgreSQL..."
-            sleep 2
-          done
-
-      - name: Wait for Redis
-        run: |
-          until docker compose exec -T redis redis-cli ping | grep PONG; do
-            echo "Waiting for Redis..."
-            sleep 2
-          done
-
-      - name: Create test database
-        run: |
-          docker compose exec -T postgres \
-            psql -U postgres -d postgres \
-            -c "CREATE DATABASE product_test_db;" || true
-
-      - name: Run migrations
-        run: |
-          docker compose exec -T fastapi alembic upgrade head
-
-      - name: Run tests with coverage
-        run: |
-          docker compose exec -T fastapi pytest \
-            --cov=app \
-            --cov-report=term-missing \
-            --cov-fail-under=90
-
-      - name: Show logs if CI fails
-        if: failure()
-        run: |
-          docker compose logs
-
-      - name: Stop containers
-        if: always()
-        run: |
-          docker compose down -v
     env:
       SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
@@ -89,3 +22,145 @@ jobs:
       SMTP_HOST: ${{ vars.SMTP_HOST }}
       SMTP_PORT: ${{ vars.SMTP_PORT }}
       MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME }}
+
+    steps:
+
+      # --------------------------------------------------------
+      # CHECKOUT
+      # --------------------------------------------------------
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+
+      # --------------------------------------------------------
+      # DOCKER INFORMATION
+      # --------------------------------------------------------
+
+      - name: Show Docker versions
+        run: |
+          docker --version
+          docker compose version
+
+
+      # --------------------------------------------------------
+      # BUILD
+      # --------------------------------------------------------
+
+      - name: Build Docker containers
+        run: |
+          docker compose build
+
+
+      # --------------------------------------------------------
+      # REQUIRED DIRECTORIES
+      # --------------------------------------------------------
+
+      - name: Create upload directories
+        run: |
+          mkdir -p uploads/products
+
+
+      # --------------------------------------------------------
+      # START SERVICES
+      # --------------------------------------------------------
+
+      - name: Start Docker services
+        run: |
+          docker compose up -d
+
+
+      - name: Show running containers
+        run: |
+          docker compose ps
+
+
+      # --------------------------------------------------------
+      # WAIT FOR POSTGRES
+      # --------------------------------------------------------
+
+      - name: Wait for PostgreSQL
+        run: |
+          echo "Waiting for PostgreSQL..."
+
+          until docker compose exec -T postgres \
+            psql -U postgres -d product_db \
+            -c "SELECT 1;" > /dev/null 2>&1
+          do
+            echo "PostgreSQL is still starting..."
+            sleep 3
+          done
+
+          echo "PostgreSQL is ready."
+
+
+      # --------------------------------------------------------
+      # WAIT FOR REDIS
+      # --------------------------------------------------------
+
+      - name: Wait for Redis
+        run: |
+          echo "Waiting for Redis..."
+
+          until docker compose exec -T redis \
+            redis-cli ping | grep PONG
+          do
+            echo "Redis is still starting..."
+            sleep 2
+          done
+
+          echo "Redis is ready."
+
+
+      # --------------------------------------------------------
+      # CREATE TEST DATABASE
+      # --------------------------------------------------------
+
+      - name: Create test database
+        run: |
+          docker compose exec -T postgres \
+            psql -U postgres -d postgres \
+            -c "CREATE DATABASE product_test_db;" || true
+
+
+      # --------------------------------------------------------
+      # ALEMBIC MIGRATIONS
+      # --------------------------------------------------------
+
+      - name: Run migrations
+        run: |
+          docker compose exec -T fastapi \
+            alembic upgrade head
+
+
+      # --------------------------------------------------------
+      # PYTEST + COVERAGE
+      # --------------------------------------------------------
+
+      - name: Run tests with coverage
+        run: |
+          docker compose exec -T fastapi pytest \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-fail-under=90
+
+
+      # --------------------------------------------------------
+      # DIAGNOSTICS
+      # --------------------------------------------------------
+
+      - name: Show logs if CI fails
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs
+
+
+      # --------------------------------------------------------
+      # CLEANUP
+      # --------------------------------------------------------
+
+      - name: Stop Docker containers
+        if: always()
+        run: |
+          docker compose down -v
