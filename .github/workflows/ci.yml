@@ -28,9 +28,14 @@ jobs:
         run: |
           docker compose build
 
+      - name: Create upload directories
+        run: |
+          mkdir -p uploads/products
+
       - name: Start Docker services
         run: |
           docker compose up -d
+          docker compose logs fastapi
 
       - name: Show running containers
         run: |

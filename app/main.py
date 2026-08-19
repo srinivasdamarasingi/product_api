@@ -31,6 +31,7 @@ from app.routers.circuit import (
 from app.routers.rate_limit import (
     router as rate_limit_router
 )
+import os
 
 logger.info("Application Started Successfully")
 
@@ -84,6 +85,9 @@ app.include_router(
 app.include_router(
     rate_limit_router
 )
+
+os.makedirs("uploads/products", exist_ok=True)
+
 @app.get("/")
 def home():
     return {
