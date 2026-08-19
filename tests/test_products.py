@@ -1,4 +1,5 @@
 from app.models.products import Product
+import json
 
 def test_get_products(client):
     response = client.get("/products/")
@@ -170,3 +171,233 @@ def test_get_product_not_found(
 
     assert response.status_code == 404
 
+
+def test_get_product_from_cache(
+    client,
+    test_product,
+    mock_product_redis
+):
+
+    cached_product = {
+        "id": test_product.id,
+        "name": test_product.name,
+        "price": test_product.price,
+        "stock": test_product.stock,
+        "category_id": test_product.category_id
+    }
+
+    mock_product_redis.get.return_value = json.dumps(
+        cached_product
+    )
+
+    response = client.get(
+        f"/products/{test_product.id}"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["id"] == test_product.id
+
+    mock_product_redis.get.assert_called_once()
+
+def test_update_nonexistent_product(
+    admin_client
+):
+
+    response = admin_client.put(
+        "/products/999999",
+        json={
+            "name": "Invalid",
+            "price": 100,
+            "stock": 1
+        }
+    )
+
+    assert response.status_code == 404
+
+def test_delete_nonexistent_product(
+    admin_client
+):
+
+    response = admin_client.delete(
+        "/products/999999"
+    )
+
+    assert response.status_code == 404
+
+def test_search_products(
+    client,
+    test_product
+):
+
+    response = client.get(
+        "/products/search",
+        params={
+            "keyword": "Test"
+        }
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert isinstance(data, list)
+
+    assert any(
+        product["id"] == test_product.id
+        for product in data
+    )
+
+def test_filter_products(
+    client,
+    test_product,
+    test_category
+):
+
+    response = client.get(
+        "/products/filter",
+        params={
+            "category_id": test_category.id,
+            "min_price": 20000,
+            "max_price": 30000
+        }
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert isinstance(data, list)
+
+    assert any(
+        product["id"] == test_product.id
+        for product in data
+    )
+
+def test_sort_products_ascending(
+    client,
+    db_session,
+    test_category
+):
+
+    product1 = Product(
+        name="Cheap Product",
+        price=100,
+        stock=10,
+        category_id=test_category.id
+    )
+
+    product2 = Product(
+        name="Expensive Product",
+        price=500,
+        stock=10,
+        category_id=test_category.id
+    )
+
+    db_session.add_all([
+        product1,
+        product2
+    ])
+
+    db_session.commit()
+
+    response = client.get(
+        "/products/sort",
+        params={
+            "order": "asc"
+        }
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    prices = [
+        product["price"]
+        for product in data
+    ]
+
+    assert prices == sorted(prices)
+
+def test_sort_products_descending(
+    client,
+    db_session,
+    test_category
+):
+
+    product1 = Product(
+        name="Cheap Product",
+        price=100,
+        stock=10,
+        category_id=test_category.id
+    )
+
+    product2 = Product(
+        name="Expensive Product",
+        price=500,
+        stock=10,
+        category_id=test_category.id
+    )
+
+    db_session.add_all([
+        product1,
+        product2
+    ])
+
+    db_session.commit()
+
+    response = client.get(
+        "/products/sort",
+        params={
+            "order": "desc"
+        }
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    prices = [
+        product["price"]
+        for product in data
+    ]
+
+    assert prices == sorted(
+        prices,
+        reverse=True
+    )
+
+def test_paginate_products(
+    client,
+    db_session,
+    test_category
+):
+
+    for number in range(10):
+
+        db_session.add(
+            Product(
+                name=f"Product {number}",
+                price=100 + number,
+                stock=10,
+                category_id=test_category.id
+            )
+        )
+
+    db_session.commit()
+
+    response = client.get(
+        "/products/paginate",
+        params={
+            "page": 1,
+            "size": 5
+        }
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert len(data) == 5
