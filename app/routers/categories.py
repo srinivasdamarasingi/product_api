@@ -11,10 +11,28 @@ router = APIRouter(
 )
 
 
-@router.post("/", response_model=CategoryResponse)
+""" @router.post("/", response_model=CategoryResponse)
 def create_category(category: CategoryCreate, db: Session = Depends(get_db)):
-    return category_crud.create_category(db, category)
+    return category_crud.create_category(db, category) """
 
+@router.post("/")
+def create_category(
+    category: CategoryCreate,
+    db: Session = Depends(get_db)
+):
+
+    db_category = category_crud.create_category(
+        db,
+        category
+    )
+
+    if db_category is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Category already exists"
+        )
+
+    return db_category
 
 @router.get("/", response_model=list[CategoryResponse])
 def get_categories(db: Session = Depends(get_db)):
