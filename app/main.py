@@ -9,7 +9,7 @@ from app.routers.products import router as product_router
 from app.routers.categories import router as category_router
 from app.models.user import User
 from app.routers.auth import router as auth_router
-from fastapi.staticfiles import StaticFiles
+
 from app.routers import email
 from app.utils.logger import logger
 from app.middleware.logging import log_requests
@@ -31,7 +31,6 @@ from app.routers.circuit import (
 from app.routers.rate_limit import (
     router as rate_limit_router
 )
-import os
 
 logger.info("Application Started Successfully")
 
@@ -64,8 +63,6 @@ app.add_exception_handler(
 
 app.middleware("http")(log_requests)
 
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
 #Base.metadata.create_all(bind=engine)
 
 # Register both routers
@@ -85,8 +82,6 @@ app.include_router(
 app.include_router(
     rate_limit_router
 )
-
-os.makedirs("uploads/products", exist_ok=True)
 
 @app.get("/")
 def home():

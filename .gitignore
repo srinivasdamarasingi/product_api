@@ -4,4 +4,6 @@ venv/
 .env
 .pytest_cache/
 .vscode/
-uploads/
+uploads/.coverage
+.coverage
+htmlcov/

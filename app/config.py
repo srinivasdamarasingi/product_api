@@ -22,5 +22,8 @@ class Settings:
     MAIL_FROM = os.getenv("MAIL_FROM")
     MAIL_FROM_NAME = os.getenv("MAIL_FROM_NAME")
 
+    S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME")
+    AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+
 
 settings = Settings()

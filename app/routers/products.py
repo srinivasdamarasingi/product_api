@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from app.services.redis_service import redis_client
 
 from app.database import get_db
 from app.models.products import Product
@@ -19,12 +20,16 @@ from fastapi import Query
 from app.security import get_current_admin
 from app.models.user import User
 import os
-import shutil
 import uuid
 
 from fastapi import UploadFile, File
 from pathlib import Path
 from fastapi import status
+from app.services.s3_service import (
+    upload_file_to_s3,
+    delete_file_from_s3,
+    generate_presigned_url,
+)
 
 router = APIRouter(
     prefix="/products",
@@ -223,37 +228,137 @@ def upload_product_image(
     # Generate safe server-side filename
     # ---------------------------------------------------------
 
+    # ---------------------------------------------------------
+    # Generate unique S3 object key
+    # ---------------------------------------------------------
+
     filename = (
         f"{uuid.uuid4()}_{original_filename}"
     )
 
-    os.makedirs(
-        "uploads/products",
-        exist_ok=True
+    object_key = (
+        f"products/{filename}"
     )
 
-    file_path = os.path.join(
-        "uploads/products",
-        filename
-    )
+    # ---------------------------------------------------------
+    # Upload image to private S3 bucket
+    # ---------------------------------------------------------
 
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(
+    # ---------------------------------------------------------
+    # Remember existing image before replacing it
+    # ---------------------------------------------------------
+
+    old_object_key = product.image_path
+
+    # ---------------------------------------------------------
+    # Upload new image to private S3 bucket
+    # ---------------------------------------------------------
+
+    try:
+        file.file.seek(0)
+
+        upload_file_to_s3(
             file.file,
-            buffer
+            object_key,
+            file.content_type
         )
 
-    relative_path = (
-        f"uploads/products/{filename}"
-    )
+    except RuntimeError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to upload image"
+        )
 
-    product.image_path = relative_path
+    # ---------------------------------------------------------
+    # Store new S3 object key in PostgreSQL
+    # ---------------------------------------------------------
 
-    db.commit()
-    db.refresh(product)
+    try:
+        product.image_path = object_key
+
+        db.commit()
+        db.refresh(product)
+
+    except Exception:
+        db.rollback()
+
+        # DB failed, so remove the newly uploaded orphan object.
+        try:
+            delete_file_from_s3(object_key)
+        except RuntimeError:
+            pass
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to save product image"
+        )
+    # ---------------------------------------------------------
+    # Invalidate stale product cache after successful DB commit
+    # ---------------------------------------------------------
+
+    try:
+        redis_client.delete(f"product:{product_id}")
+    except Exception as exc:
+        print(
+            f"Warning: unable to invalidate Redis cache "
+            f"for product:{product_id}: {exc}"
+        )
+
+    # ---------------------------------------------------------
+    # DB succeeded. Old image is no longer required.
+    # ---------------------------------------------------------
+
+    if old_object_key and old_object_key != object_key:
+        try:
+            delete_file_from_s3(old_object_key)
+        except RuntimeError:
+            # Product already points to the new valid image.
+            # Old-object cleanup failure should not break
+            # the successful request.
+            pass
 
     return product
 
+@router.get("/{product_id}/image-url")
+def get_product_image_url(
+    product_id: int,
+    db: Session = Depends(get_db)
+):
+    product = (
+        db.query(Product)
+        .filter(Product.id == product_id)
+        .first()
+    )
+
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found"
+        )
+
+    if not product.image_path:
+        raise HTTPException(
+            status_code=404,
+            detail="Product image not found"
+        )
+
+    try:
+        image_url = generate_presigned_url(
+            product.image_path,
+            expires_in=300
+        )
+
+    except RuntimeError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to generate image URL"
+        )
+
+    return {
+        "product_id": product.id,
+        "image_url": image_url,
+        "expires_in": 300
+    }
 
 
 @router.get(

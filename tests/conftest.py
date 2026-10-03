@@ -1,3 +1,4 @@
+import os
 import pytest
 
 from fastapi.testclient import TestClient
@@ -16,8 +17,14 @@ from unittest.mock import MagicMock
 # TEST DATABASE
 # ============================================================
 
-TEST_DATABASE_URL = (
-    "postgresql+psycopg://postgres:SqlPgAdmin"
+TEST_DB_PASSWORD = os.getenv(
+    "TEST_DB_PASSWORD",
+    "test_password"
+)
+
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    f"postgresql+psycopg://postgres:{TEST_DB_PASSWORD}"
     "@postgres:5432/product_test_db"
 )
 

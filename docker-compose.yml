@@ -1,38 +1,9 @@
 services:
 
-  postgres:
-    image: postgres:17
-    container_name: postgres_db
-
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: SqlPgAdmin
-      POSTGRES_DB: product_db
-
-    ports:
-      - "5432:5432"
-
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U postgres -d product_db"
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-
-
   redis:
     image: redis:8-alpine
     container_name: redis_server
 
-    ports:
-      - "6379:6379"
 
     volumes:
       - redis_data:/data
@@ -43,11 +14,9 @@ services:
     container_name: product_api
 
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
 
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_started
 
@@ -55,7 +24,7 @@ services:
       - .:/app
 
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres:SqlPgAdmin@postgres:5432/product_db
+      DATABASE_URL: ${DATABASE_URL}
       REDIS_HOST: redis
 
       SMTP_HOST: ${SMTP_HOST}
@@ -65,7 +34,7 @@ services:
       MAIL_FROM: ${MAIL_FROM}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME}
 
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 
   celery:
@@ -73,8 +42,6 @@ services:
     container_name: celery_worker
 
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_started
 
@@ -82,8 +49,10 @@ services:
       - .:/app
 
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres:SqlPgAdmin@postgres:5432/product_db
+      DATABASE_URL: ${DATABASE_URL}
       REDIS_HOST: redis
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+      AWS_REGION: ${AWS_REGION}
 
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}

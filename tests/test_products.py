@@ -407,16 +407,14 @@ def test_upload_product_image(
     admin_client,
     test_product
 ):
-
     with patch(
         "app.routers.products.uuid.uuid4",
         return_value="test-uuid"
     ), patch(
-        "builtins.open",
-        mock_open()
-    ), patch(
-        "app.routers.products.shutil.copyfileobj"
-    ) as mock_copy:
+        "app.routers.products.upload_file_to_s3"
+    ) as mock_upload, patch(
+        "app.routers.products.redis_client.delete"
+    ) as mock_cache_delete:
 
         response = admin_client.post(
             f"/products/{test_product.id}/image",
@@ -436,11 +434,56 @@ def test_upload_product_image(
     assert data["id"] == test_product.id
 
     assert data["image_path"] == (
-        "uploads/products/"
+        "products/"
         "test-uuid_product.png"
     )
 
-    mock_copy.assert_called_once()
+    mock_upload.assert_called_once()
+
+    call_args = mock_upload.call_args
+
+    assert call_args.args[1] == (
+        "products/"
+        "test-uuid_product.png"
+    )
+
+    assert call_args.args[2] == "image/png"
+
+    mock_cache_delete.assert_called_once_with(
+        f"product:{test_product.id}"
+    )
+def test_upload_image_s3_failure(
+    admin_client,
+    test_product,
+    db_session
+):
+    original_image_path = test_product.image_path
+
+    with patch(
+        "app.routers.products.upload_file_to_s3",
+        side_effect=RuntimeError("S3 upload failed")
+    ):
+        response = admin_client.post(
+            f"/products/{test_product.id}/image",
+            files={
+                "file": (
+                    "product.png",
+                    b"fake-image-content",
+                    "image/png"
+                )
+            }
+        )
+
+    assert response.status_code == 503
+
+    assert response.json()["detail"] == (
+        "Unable to upload image"
+    )
+
+    db_session.refresh(test_product)
+
+    assert test_product.image_path == original_image_path
+
 
 def test_upload_image_product_not_found(
     admin_client
@@ -584,16 +627,12 @@ def test_upload_sanitizes_filename(
     admin_client,
     test_product
 ):
-
     with patch(
         "app.routers.products.uuid.uuid4",
         return_value="safe-uuid"
     ), patch(
-        "builtins.open",
-        mock_open()
-    ), patch(
-        "app.routers.products.shutil.copyfileobj"
-    ):
+        "app.routers.products.upload_file_to_s3"
+    ) as mock_upload:
 
         response = admin_client.post(
             f"/products/{test_product.id}/image",
@@ -608,13 +647,157 @@ def test_upload_sanitizes_filename(
 
     assert response.status_code == 200
 
-    image_path = response.json()[
-        "image_path"
-    ]
+    image_path = response.json()["image_path"]
 
     assert ".." not in image_path
 
     assert image_path == (
-        "uploads/products/"
+        "products/"
         "safe-uuid_evil.png"
+    )
+
+    mock_upload.assert_called_once()
+
+    call_args = mock_upload.call_args
+
+    assert call_args.args[1] == (
+        "products/"
+        "safe-uuid_evil.png"
+    )
+
+def test_upload_image_db_failure_deletes_new_s3_object(
+    admin_client,
+    test_product
+):
+    with patch(
+        "app.routers.products.uuid.uuid4",
+        return_value="rollback-uuid"
+    ), patch(
+        "app.routers.products.upload_file_to_s3"
+    ) as mock_upload, patch(
+        "app.routers.products.delete_file_from_s3"
+    ) as mock_delete, patch(
+        "sqlalchemy.orm.Session.commit",
+        side_effect=Exception("Database commit failed")
+    ):
+
+        response = admin_client.post(
+            f"/products/{test_product.id}/image",
+            files={
+                "file": (
+                    "product.png",
+                    b"fake-image-content",
+                    "image/png"
+                )
+            }
+        )
+
+    assert response.status_code == 500
+
+    assert response.json()["detail"] == (
+        "Unable to save product image"
+    )
+
+    mock_upload.assert_called_once()
+
+    mock_delete.assert_called_once_with(
+        "products/"
+        "rollback-uuid_product.png"
+    )
+
+def test_get_product_image_presigned_url(
+    client,
+    test_product,
+    db_session
+):
+    test_product.image_path = (
+        "products/test-product.png"
+    )
+
+    db_session.commit()
+    db_session.refresh(test_product)
+
+    with patch(
+        "app.routers.products.generate_presigned_url",
+        return_value=(
+            "https://example.com/"
+            "temporary-presigned-url"
+        )
+    ) as mock_presigned:
+
+        response = client.get(
+            f"/products/{test_product.id}/image-url"
+        )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["product_id"] == test_product.id
+
+    assert data["image_url"] == (
+        "https://example.com/"
+        "temporary-presigned-url"
+    )
+
+    assert data["expires_in"] == 300
+
+    mock_presigned.assert_called_once_with(
+        "products/test-product.png",
+        expires_in=300
+    )
+
+def test_get_product_image_url_product_not_found(
+    client
+):
+    response = client.get(
+        "/products/999999/image-url"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == (
+        "Product not found"
+    )
+
+
+def test_get_product_image_url_without_image(
+    client,
+    test_product
+):
+    response = client.get(
+        f"/products/{test_product.id}/image-url"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == (
+        "Product image not found"
+    )
+
+
+def test_get_product_image_url_s3_failure(
+    client,
+    test_product,
+    db_session
+):
+    test_product.image_path = (
+        "products/test-product.png"
+    )
+
+    db_session.commit()
+    db_session.refresh(test_product)
+
+    with patch(
+        "app.routers.products.generate_presigned_url",
+        side_effect=RuntimeError(
+            "Unable to generate URL"
+        )
+    ):
+        response = client.get(
+            f"/products/{test_product.id}/image-url"
+        )
+
+    assert response.status_code == 503
+
+    assert response.json()["detail"] == (
+        "Unable to generate image URL"
     )
