@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.services.redis_service import redis_client
+from app.utils.logger import logger
 
 from app.database import get_db
 from app.models.products import Product
@@ -295,13 +296,13 @@ def upload_product_image(
     # ---------------------------------------------------------
     # Invalidate stale product cache after successful DB commit
     # ---------------------------------------------------------
-
     try:
         redis_client.delete(f"product:{product_id}")
     except Exception as exc:
-        print(
-            f"Warning: unable to invalidate Redis cache "
-            f"for product:{product_id}: {exc}"
+        logger.warning(
+            "Unable to invalidate Redis cache for product_id=%s: %s",
+            product_id,
+            exc,
         )
 
     # ---------------------------------------------------------
