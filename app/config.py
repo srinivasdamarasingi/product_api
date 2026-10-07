@@ -14,13 +14,6 @@ class Settings:
             "environment",
         )
 
-        self.SMTP_HOST = os.getenv("SMTP_HOST")
-        self.SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
-        self.SMTP_USERNAME = os.getenv("SMTP_USERNAME")
-        self.SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-        self.MAIL_FROM = os.getenv("MAIL_FROM")
-        self.MAIL_FROM_NAME = os.getenv("MAIL_FROM_NAME")
-
         if self.CONFIG_SOURCE == "ssm":
             self.S3_BUCKET_NAME = get_parameter(
                 "/product-api/prod/s3-bucket"
@@ -33,6 +26,34 @@ class Settings:
             self.SECRET_KEY = get_parameter(
                 "/product-api/prod/jwt-secret-key",
                 with_decryption=True,
+            )
+
+            self.SMTP_HOST = get_parameter(
+                "/product-api/prod/smtp-host"
+            )
+
+            self.SMTP_PORT = int(
+                get_parameter(
+                    "/product-api/prod/smtp-port"
+                )
+            )
+
+            self.SMTP_USERNAME = get_parameter(
+                "/product-api/prod/smtp-username",
+                with_decryption=True,
+            )
+
+            self.SMTP_PASSWORD = get_parameter(
+                "/product-api/prod/smtp-password",
+                with_decryption=True,
+            )
+
+            self.MAIL_FROM = get_parameter(
+                "/product-api/prod/mail-from"
+            )
+
+            self.MAIL_FROM_NAME = get_parameter(
+                "/product-api/prod/mail-from-name"
             )
         else:
             self.S3_BUCKET_NAME = os.getenv(
