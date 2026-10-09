@@ -16,8 +16,17 @@ import os
 
 database_url = os.getenv("DATABASE_URL")
 
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+from app.config import settings
+
+database_url = settings.DATABASE_URL
+
+if not database_url:
+    raise RuntimeError("DATABASE_URL is required")
+
+config.set_main_option(
+    "sqlalchemy.url",
+    database_url.replace("%", "%%"),
+)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

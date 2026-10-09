@@ -1,4 +1,32 @@
 import os
+
+# Force the application database to use the isolated test database
+# before importing app.main or app.database.
+TEST_DB_PASSWORD = os.getenv(
+    "TEST_DB_PASSWORD",
+    "test_password",
+)
+
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    f"postgresql+psycopg://postgres:{TEST_DB_PASSWORD}"
+    "@postgres:5432/product_test_db",
+)
+
+from sqlalchemy.engine import make_url
+
+parsed_test_url = make_url(TEST_DATABASE_URL)
+
+if (
+    parsed_test_url.host != "postgres"
+    or parsed_test_url.database != "product_test_db"
+):
+    raise RuntimeError(
+        "Unsafe test database configuration"
+    )
+
+os.environ["CONFIG_SOURCE"] = "environment"
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 import pytest
 
 from fastapi.testclient import TestClient
@@ -16,17 +44,6 @@ from unittest.mock import MagicMock
 # ============================================================
 # TEST DATABASE
 # ============================================================
-
-TEST_DB_PASSWORD = os.getenv(
-    "TEST_DB_PASSWORD",
-    "test_password"
-)
-
-TEST_DATABASE_URL = os.getenv(
-    "TEST_DATABASE_URL",
-    f"postgresql+psycopg://postgres:{TEST_DB_PASSWORD}"
-    "@postgres:5432/product_test_db"
-)
 
 test_engine = create_engine(
     TEST_DATABASE_URL,

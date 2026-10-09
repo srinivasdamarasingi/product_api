@@ -1,14 +1,14 @@
-import os
-
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
+
+from app.config import settings
 
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = settings.DATABASE_URL
 
 if not DATABASE_URL:
     raise RuntimeError(
-        "DATABASE_URL environment variable is required"
+        "DATABASE_URL is required"
     )
 
 
