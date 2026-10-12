@@ -31,10 +31,13 @@ from app.routers.circuit import (
 from app.routers.rate_limit import (
     router as rate_limit_router
 )
+from app.routers.health import router as health_router
 
 logger.info("Application Started Successfully")
 
 app = FastAPI()
+
+app.include_router(health_router)
 
 app.add_exception_handler(
     ProductNotFoundException,
