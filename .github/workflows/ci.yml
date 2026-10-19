@@ -21,6 +21,8 @@ jobs:
     env:
       COMPOSE_PROJECT_NAME: product_api_ci
       COMPOSE_FILE: docker-compose.yml:docker-compose.test.yml:docker-compose.ci.yml
+      TEST_DB_PASSWORD: ci_test_password
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:ci_test_password@postgres_test:5432/product_test_db
 
       CONFIG_SOURCE: environment
       S3_BUCKET_NAME: ci-test-bucket
@@ -162,7 +164,7 @@ jobs:
               raise RuntimeError("Connected to unexpected database")
 
           print("PASS: Connected to isolated CI test database.")
-          '     
+          '
 
       - name: Run migrations
         run: |
