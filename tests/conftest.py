@@ -18,8 +18,9 @@ from sqlalchemy.engine import make_url
 parsed_test_url = make_url(TEST_DATABASE_URL)
 
 if (
-    parsed_test_url.host != "postgres"
+    parsed_test_url.host not in ("postgres", "postgres_test")
     or parsed_test_url.database != "product_test_db"
+    or parsed_test_url.username != "postgres"
 ):
     raise RuntimeError(
         "Unsafe test database configuration"
