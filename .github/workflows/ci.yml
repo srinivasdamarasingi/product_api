@@ -1,3 +1,4 @@
+
 name: Product API CI
 
 on:
@@ -9,19 +10,30 @@ on:
     branches:
       - master
 
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     env:
-      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-      MAIL_FROM: ${{ secrets.MAIL_FROM }}
+      COMPOSE_PROJECT_NAME: product_api_ci
+      COMPOSE_FILE: docker-compose.yml:docker-compose.test.yml:docker-compose.ci.yml
 
-      SMTP_HOST: ${{ vars.SMTP_HOST }}
-      SMTP_PORT: ${{ vars.SMTP_PORT }}
-      MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME }}
+      CONFIG_SOURCE: environment
+      S3_BUCKET_NAME: ci-test-bucket
+      AWS_REGION: us-east-1
+
+      SMTP_HOST: localhost
+      SMTP_PORT: "587"
+      SMTP_USERNAME: ci-test-user
+      SMTP_PASSWORD: ci-test-password
+      MAIL_FROM: ci-test@example.com
+      MAIL_FROM_NAME: Product API CI
+
+      AWS_EC2_METADATA_DISABLED: "true"
 
     steps:
 
@@ -47,9 +59,9 @@ jobs:
       # BUILD
       # --------------------------------------------------------
 
-      - name: Build Docker containers
+      - name: Build FastAPI test image
         run: |
-          docker compose build
+          docker compose build fastapi
 
 
       # --------------------------------------------------------
@@ -65,9 +77,9 @@ jobs:
       # START SERVICES
       # --------------------------------------------------------
 
-      - name: Start Docker services
+      - name: Start CI test services
         run: |
-          docker compose up -d
+          docker compose up -d --no-build fastapi redis postgres_test
 
 
       - name: Show running containers
@@ -81,17 +93,21 @@ jobs:
 
       - name: Wait for PostgreSQL
         run: |
-          echo "Waiting for PostgreSQL..."
+          echo "Waiting for CI PostgreSQL..."
 
-          until docker compose exec -T postgres \
-            psql -U postgres -d product_db \
-            -c "SELECT 1;" > /dev/null 2>&1
-          do
-            echo "PostgreSQL is still starting..."
+          for attempt in $(seq 1 20); do
+            if docker compose exec -T postgres_test \
+              pg_isready -U postgres -d product_test_db; then
+              echo "CI PostgreSQL is ready."
+              exit 0
+            fi
+
+            echo "PostgreSQL not ready. Attempt $attempt/20"
             sleep 3
           done
 
-          echo "PostgreSQL is ready."
+          echo "ERROR: PostgreSQL did not become ready."
+          exit 1
 
 
       # --------------------------------------------------------
@@ -100,32 +116,53 @@ jobs:
 
       - name: Wait for Redis
         run: |
-          echo "Waiting for Redis..."
+          echo "Waiting for CI Redis..."
 
-          until docker compose exec -T redis \
-            redis-cli ping | grep PONG
-          do
-            echo "Redis is still starting..."
+          for attempt in $(seq 1 20); do
+            if docker compose exec -T redis \
+              redis-cli ping | grep -q '^PONG$'; then
+              echo "CI Redis is ready."
+              exit 0
+            fi
+
+            echo "Redis not ready. Attempt $attempt/20"
             sleep 2
           done
 
-          echo "Redis is ready."
-
-
-      # --------------------------------------------------------
-      # CREATE TEST DATABASE
-      # --------------------------------------------------------
-
-      - name: Create test database
-        run: |
-          docker compose exec -T postgres \
-            psql -U postgres -d postgres \
-            -c "CREATE DATABASE product_test_db;" || true
+          echo "ERROR: Redis did not become ready."
+          exit 1
 
 
       # --------------------------------------------------------
       # ALEMBIC MIGRATIONS
       # --------------------------------------------------------
+      - name: Verify CI database target
+        run: |
+          docker compose exec -T fastapi python -c '
+          from app.config import settings
+          from sqlalchemy import create_engine, text
+          from sqlalchemy.engine import make_url
+
+          url = make_url(settings.DATABASE_URL)
+
+          if url.host != "postgres_test":
+              raise RuntimeError("Unsafe database host")
+
+          if url.database != "product_test_db":
+              raise RuntimeError("Unsafe database name")
+
+          engine = create_engine(settings.DATABASE_URL)
+
+          with engine.connect() as connection:
+              database = connection.execute(
+                  text("SELECT current_database()")
+              ).scalar_one()
+
+          if database != "product_test_db":
+              raise RuntimeError("Connected to unexpected database")
+
+          print("PASS: Connected to isolated CI test database.")
+          '     
 
       - name: Run migrations
         run: |
@@ -160,7 +197,12 @@ jobs:
       # CLEANUP
       # --------------------------------------------------------
 
-      - name: Stop Docker containers
+      - name: Stop CI Docker containers
         if: always()
         run: |
-          docker compose down -v
+          if [ "${GITHUB_ACTIONS:-}" != "true" ] || [ "${RUNNER_ENVIRONMENT:-}" != "github-hosted" ]; then
+            echo "ERROR: Cleanup is restricted to GitHub-hosted Actions runners."
+            exit 1
+          fi
+
+          docker compose down --volumes

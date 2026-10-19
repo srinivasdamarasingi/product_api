@@ -1,0 +1,20 @@
+services:
+  fastapi:
+    container_name: product_api_ci
+    environment:
+      CONFIG_SOURCE: environment
+      DATABASE_URL: postgresql+psycopg://postgres:ci_test_password@postgres_test:5432/product_test_db
+      SECRET_KEY: ci-only-test-secret-not-for-production
+      AWS_REGION: us-east-1
+      SMTP_PORT: "587"
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_ACCESS_KEY_ID: ci-test-only
+      AWS_SECRET_ACCESS_KEY: ci-test-only
+
+  redis:
+    container_name: redis_server_ci
+
+  postgres_test:
+    container_name: product_api_postgres_ci
+    environment:
+      POSTGRES_PASSWORD: ci_test_password
