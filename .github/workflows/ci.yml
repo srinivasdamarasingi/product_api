@@ -178,7 +178,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          docker compose exec -T fastapi pytest \
+          docker compose exec -T fastapi python -m pytest \
             --cov=app \
             --cov-report=term-missing \
             --cov-fail-under=90
