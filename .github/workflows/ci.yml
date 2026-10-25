@@ -198,11 +198,12 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          docker compose exec -T fastapi python -m pytest \
+          docker compose exec -T \
+            -e COVERAGE_FILE=/tmp/product-api-ci.coverage \
+            fastapi python -m pytest \
             --cov=app \
             --cov-report=term-missing \
             --cov-fail-under=90
-
 
       # --------------------------------------------------------
       # DIAGNOSTICS
