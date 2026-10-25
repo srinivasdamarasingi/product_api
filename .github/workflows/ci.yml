@@ -258,3 +258,50 @@ jobs:
           aws sts get-caller-identity \
             --query '{Account:Account,Arn:Arn}' \
             --output json
+      
+  # --------------------------------------------------------
+  # BUILD AND PUBLISH DOCKER IMAGE TO AMAZON ECR
+  # --------------------------------------------------------
+  publish-ecr:
+    name: Publish Docker image to ECR
+    needs: [test, aws-auth-check]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::211125480708:role/GitHubActionsProductApiECRPush
+          aws-region: us-east-1
+          role-session-name: product-api-ecr-publish
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: product-api
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+          echo "Building image: $IMAGE_URI"
+
+          docker build --tag "$IMAGE_URI" .
+
+          docker push "$IMAGE_URI"
+
+          echo "Published image: $IMAGE_URI"
