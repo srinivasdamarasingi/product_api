@@ -208,3 +208,31 @@ jobs:
           fi
 
           docker compose down --volumes
+
+  # --------------------------------------------------------
+  # AWS OIDC AUTHENTICATION VERIFICATION
+  # --------------------------------------------------------
+  aws-auth-check:
+    name: Verify AWS OIDC authentication
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Configure temporary AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::211125480708:role/GitHubActionsProductApiECRPush
+          aws-region: us-east-1
+          role-session-name: product-api-github-actions
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity \
+            --query '{Account:Account,Arn:Arn}' \
+            --output json
