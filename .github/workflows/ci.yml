@@ -64,6 +64,31 @@ jobs:
       - name: Build FastAPI test image
         run: |
           docker compose build fastapi
+      
+      
+      # --------------------------------------------------------
+      # CONTAINER SECURITY VERIFICATION
+      # --------------------------------------------------------
+
+      - name: Verify FastAPI image runs as non-root
+        run: |
+          IMAGE_ID=$(docker compose images -q fastapi)
+
+          if [ -z "$IMAGE_ID" ]; then
+            echo "ERROR: FastAPI Docker image not found."
+            exit 1
+          fi
+
+          USER_ID=$(docker run --rm --entrypoint id "$IMAGE_ID" -u)
+
+          echo "Container user ID: $USER_ID"
+
+          if [ "$USER_ID" = "0" ]; then
+            echo "ERROR: FastAPI container runs as root."
+            exit 1
+          fi
+
+          echo "PASS: FastAPI container runs as non-root."
 
 
       # --------------------------------------------------------
