@@ -64,27 +64,22 @@ jobs:
       - name: Build FastAPI test image
         run: |
           docker compose build fastapi
-      
-      
+
+
       # --------------------------------------------------------
       # CONTAINER SECURITY VERIFICATION
       # --------------------------------------------------------
 
       - name: Verify FastAPI image runs as non-root
         run: |
-          IMAGE_ID=$(docker compose images -q fastapi)
+          docker build -t product-api-security-check .
 
-          if [ -z "$IMAGE_ID" ]; then
-            echo "ERROR: FastAPI Docker image not found."
-            exit 1
-          fi
-
-          USER_ID=$(docker run --rm --entrypoint id "$IMAGE_ID" -u)
+          USER_ID=$(docker run --rm --entrypoint id product-api-security-check -u)
 
           echo "Container user ID: $USER_ID"
 
-          if [ "$USER_ID" = "0" ]; then
-            echo "ERROR: FastAPI container runs as root."
+          if ! [[ "$USER_ID" =~ ^[0-9]+$ ]] || [ "$USER_ID" = "0" ]; then
+            echo "ERROR: FastAPI container is root or has an invalid UID."
             exit 1
           fi
 
@@ -248,7 +243,7 @@ jobs:
       contents: read
       id-token: write
 
-    
+
     steps:
       - name: Configure temporary AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
