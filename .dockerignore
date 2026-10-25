@@ -1,0 +1,41 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Git and GitHub
+.git
+.github
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Tests and development artifacts
+tests/
+test_*.py
+pytest.ini
+docs/
+
+# Docker Compose and backups
+docker-compose*.yml
+*.backup
+*.save
+*.pre-ssm
+*.bak
+
+# Local development files
+.venv/
+venv/
+.vscode/
+.idea/
+*.log

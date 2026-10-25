@@ -1,5 +1,7 @@
 services:
   fastapi:
+    volumes: !override
+      - ./tests:/app/tests:ro
     container_name: product_api_ci
     environment:
       CONFIG_SOURCE: environment
