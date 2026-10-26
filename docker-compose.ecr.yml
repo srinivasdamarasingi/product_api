@@ -1,0 +1,15 @@
+services:
+  fastapi:
+    image: ${ECR_IMAGE:?ECR_IMAGE must be set}
+    build: !reset null
+    volumes: !override []
+
+  celery:
+    image: ${ECR_IMAGE:?ECR_IMAGE must be set}
+    build: !reset null
+    volumes: !override []
+
+  flower:
+    image: ${ECR_IMAGE:?ECR_IMAGE must be set}
+    build: !reset null
+    volumes: !override []
