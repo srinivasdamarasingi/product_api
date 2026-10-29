@@ -1,3 +1,4 @@
+
 name: Product API Production Deployment
 
 on:
@@ -8,15 +9,33 @@ permissions:
 
 jobs:
   production-approval:
-    name: Production Approval Verification
+    name: Production Approval and AWS Authentication
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     environment:
       name: production
 
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - name: Verify production approval
         run: |
-          echo "Production environment approval completed."
+          echo "Production approval completed."
           echo "Branch: $GITHUB_REF_NAME"
           echo "Commit: $GITHUB_SHA"
+
+      - name: Configure AWS production credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::211125480708:role/GitHubActionsProductApiProductionDeploy
+          aws-region: us-east-1
+          role-session-name: product-api-production-verify
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity \
+            --query '{Account:Account,Arn:Arn}' \
+            --output json
