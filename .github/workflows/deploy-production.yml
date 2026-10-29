@@ -1,0 +1,22 @@
+name: Product API Production Deployment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-approval:
+    name: Production Approval Verification
+    runs-on: ubuntu-latest
+
+    environment:
+      name: production
+
+    steps:
+      - name: Verify production approval
+        run: |
+          echo "Production environment approval completed."
+          echo "Branch: $GITHUB_REF_NAME"
+          echo "Commit: $GITHUB_SHA"
