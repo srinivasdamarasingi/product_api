@@ -27,6 +27,40 @@ jobs:
           echo "Branch: $GITHUB_REF_NAME"
           echo "Commit: $GITHUB_SHA"
 
+      - name: Diagnose GitHub OIDC claims
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import base64
+          import urllib.parse
+          import urllib.request
+
+          request_url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
+          request_token = os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]
+
+          url = request_url + "&audience=" + urllib.parse.quote("sts.amazonaws.com")
+
+          request = urllib.request.Request(
+              url,
+              headers={"Authorization": f"Bearer {request_token}"}
+          )
+
+          with urllib.request.urlopen(request) as response:
+              token = json.load(response)["value"]
+
+          payload = token.split(".")[1]
+          payload += "=" * (-len(payload) % 4)
+
+          claims = json.loads(
+              base64.urlsafe_b64decode(payload)
+          )
+
+          for key in ("iss", "aud", "sub", "repository", "ref", "environment"):
+              print(f"{key}: {claims.get(key)}")
+          PY
+
       - name: Configure AWS production credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
