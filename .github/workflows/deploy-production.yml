@@ -1,5 +1,5 @@
 
-name: Product API Production Deployment
+name: Product API Production Preflight Validation
 
 on:
   workflow_dispatch:
@@ -7,11 +7,16 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: product-api-production-validation
+  cancel-in-progress: false
+
 jobs:
-  production-approval:
-    name: Production Approval and AWS Authentication
+  production-validation:
+    name: Approved Production Preflight
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
 
     environment:
       name: production
@@ -20,46 +25,28 @@ jobs:
       contents: read
       id-token: write
 
-    steps:
-      - name: Verify production approval
-        run: |
-          echo "Production approval completed."
-          echo "Branch: $GITHUB_REF_NAME"
-          echo "Commit: $GITHUB_SHA"
+    env:
+      AWS_REGION: us-east-1
+      AWS_ACCOUNT_ID: "211125480708"
+      INSTANCE_ID: i-0d177820566200d3e
+      SSM_DOCUMENT: ProductApi-ProductionValidation
+      SSM_DOCUMENT_VERSION: "1"
+      IMAGE_DIGEST: "sha256:413a638fa6ea6cdee88588ef32a30895d7cbb9729b81c541a2eeee169dc41f55"
+      IMAGE_GIT_SHA: "12b219f19f14b05dabfd12f92f1b6c165fe6e41c"
 
-      - name: Diagnose GitHub OIDC claims
+    steps:
+      - name: Verify approved workflow context
         shell: bash
         run: |
-          python - <<'PY'
-          import os
-          import json
-          import base64
-          import urllib.parse
-          import urllib.request
+          set -euo pipefail
 
-          request_url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
-          request_token = os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]
+          test "$GITHUB_REF" = "refs/heads/master"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
 
-          url = request_url + "&audience=" + urllib.parse.quote("sts.amazonaws.com")
-
-          request = urllib.request.Request(
-              url,
-              headers={"Authorization": f"Bearer {request_token}"}
-          )
-
-          with urllib.request.urlopen(request) as response:
-              token = json.load(response)["value"]
-
-          payload = token.split(".")[1]
-          payload += "=" * (-len(payload) % 4)
-
-          claims = json.loads(
-              base64.urlsafe_b64decode(payload)
-          )
-
-          for key in ("iss", "aud", "sub", "repository", "ref", "environment"):
-              print(f"{key}: {claims.get(key)}")
-          PY
+          echo "Approved production environment reached."
+          echo "Workflow branch: $GITHUB_REF_NAME"
+          echo "Workflow commit: $GITHUB_SHA"
+          echo "Execution mode: VALIDATION ONLY"
 
       - name: Configure AWS production credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -69,34 +56,146 @@ jobs:
           role-session-name: product-api-production-verify
 
       - name: Verify AWS identity
-        run: |
-        
-      - name: Verify EC2 connectivity through SSM
         shell: bash
         run: |
           set -euo pipefail
 
-          INSTANCE_ID="i-0d177820566200d3e"
+          ACCOUNT=$(aws sts get-caller-identity \
+            --query Account --output text)
+
+          ARN=$(aws sts get-caller-identity \
+            --query Arn --output text)
+
+          test "$ACCOUNT" = "$AWS_ACCOUNT_ID"
+
+          case "$ARN" in
+            arn:aws:sts::211125480708:assumed-role/GitHubActionsProductApiProductionDeploy/*)
+              echo "PASS: Expected AWS role assumed"
+              ;;
+            *)
+              echo "FAIL: Unexpected AWS identity"
+              exit 1
+              ;;
+          esac
+
+      - name: Execute validation-only SSM document
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/product-api@${IMAGE_DIGEST}"
+
+          PARAMETERS=$(jq -n \
+            --arg previous "$IMAGE" \
+            --arg target "$IMAGE" \
+            --arg sha "$IMAGE_GIT_SHA" \
+            '{
+              PreviousImage: [$previous],
+              TargetImage: [$target],
+              GitSha: [$sha]
+            }')
 
           COMMAND_ID=$(aws ssm send-command \
+            --region "$AWS_REGION" \
             --instance-ids "$INSTANCE_ID" \
-            --document-name "AWS-RunShellScript" \
-            --parameters '{"commands":["echo SSM-CONNECTIVITY-PASS","whoami","hostname"]}' \
-            --query "Command.CommandId" \
+            --document-name "$SSM_DOCUMENT" \
+            --document-version "$SSM_DOCUMENT_VERSION" \
+            --parameters "$PARAMETERS" \
+            --timeout-seconds 120 \
+            --query 'Command.CommandId' \
             --output text)
 
-          echo "SSM Command ID: $COMMAND_ID"
+          test -n "$COMMAND_ID"
+          test "$COMMAND_ID" != "None"
 
-          aws ssm wait command-executed \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID"
+          echo "SSM command ID: $COMMAND_ID"
 
-          aws ssm get-command-invocation \
-            --command-id "$COMMAND_ID" \
-            --instance-id "$INSTANCE_ID" \
-            --query '{Status:Status,Output:StandardOutputContent}' \
-            --output json
+          echo "Waiting for validation result..."
 
-          aws sts get-caller-identity \
-            --query '{Account:Account,Arn:Arn}' \
-            --output json
+          POLL_INTERVAL=5
+          MAX_WAIT_SECONDS=420
+          DEADLINE=$((SECONDS + MAX_WAIT_SECONDS))
+          RESULT=""
+          STATUS=""
+
+          while (( SECONDS < DEADLINE )); do
+            ERROR_FILE=$(mktemp)
+
+            if RESULT=$(aws ssm get-command-invocation \
+              --region "$AWS_REGION" \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --cli-connect-timeout 5 \
+              --cli-read-timeout 15 \
+              --output json 2>"$ERROR_FILE"); then
+              rm -f "$ERROR_FILE"
+            else
+              ERROR=$(cat "$ERROR_FILE")
+              rm -f "$ERROR_FILE"
+
+              if [[ "$ERROR" == *"InvocationDoesNotExist"* ]]; then
+                echo "SSM invocation not yet available; retrying."
+                sleep "$POLL_INTERVAL"
+                continue
+              fi
+
+              echo "FAIL: SSM API error"
+              echo "$ERROR"
+              echo "SSM command ID: $COMMAND_ID"
+              exit 1
+            fi
+
+            if ! echo "$RESULT" | jq -e . >/dev/null 2>&1; then
+              echo "FAIL: Invalid SSM JSON response"
+              exit 1
+            fi
+
+            if (( SECONDS >= DEADLINE )); then
+              echo "FAIL: SSM polling deadline exceeded"
+              echo "SSM command ID: $COMMAND_ID"
+              exit 1
+            fi
+            STATUS=$(echo "$RESULT" | jq -r '.Status')
+            RESPONSE_CODE=$(echo "$RESULT" | jq -r '.ResponseCode')
+
+            echo "SSM status: $STATUS"
+
+            case "$STATUS" in
+              Success|Failed|Cancelled|TimedOut|Cancelling)
+                break
+                ;;
+              Pending|InProgress|Delayed)
+                sleep "$POLL_INTERVAL"
+                ;;
+              *)
+                echo "FAIL: Unexpected SSM status: $STATUS"
+                exit 1
+                ;;
+            esac
+          done
+
+          if [[ -z "$RESULT" ]] || ! echo "$RESULT" | jq -e . >/dev/null 2>&1; then
+            echo "FAIL: No valid SSM invocation result"
+            echo "SSM command ID: $COMMAND_ID"
+            exit 1
+          fi
+
+          echo "$RESULT" | jq '{
+            Status,
+            StatusDetails,
+            ResponseCode,
+            StandardOutputContent,
+            StandardErrorContent
+          }'
+
+          STATUS=$(echo "$RESULT" | jq -r '.Status')
+          RESPONSE_CODE=$(echo "$RESULT" | jq -r '.ResponseCode')
+
+          if (( SECONDS >= DEADLINE )) || [[ "$STATUS" != "Success" || "$RESPONSE_CODE" != "0" ]]; then
+            echo "FAIL: Production preflight validation"
+            echo "SSM command ID: $COMMAND_ID"
+            exit 1
+          fi
+
+          echo "PASS: Production preflight validation"
+          echo "NO DEPLOYMENT PERFORMED"
